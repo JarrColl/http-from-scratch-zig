@@ -37,6 +37,8 @@ pub fn main() !void {
             if (std.mem.eql(u8, route, "echo")) {
                 const echo_value = target_iterator.next() orelse "";
                 try connection.stream.writeAll(try std.fmt.allocPrint(alloc, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {d}\r\n\r\n{s}", .{ echo_value.len, echo_value }));
+            } else if (std.mem.eql(u8, route, "")) {
+                try connection.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
             } else {
                 try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
             }
