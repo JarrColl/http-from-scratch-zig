@@ -21,7 +21,6 @@ pub fn main() !void {
     defer connection.stream.close();
 
     var request_buffer: [1024]u8 = undefined;
-    // var target_buffer: [512]u8 = undefined;
 
     _ = try connection.stream.read(&request_buffer);
 
@@ -34,13 +33,10 @@ pub fn main() !void {
             var target_iterator = std.mem.split(u8, split, "/");
             _ = target_iterator.next();
 
-            const route = target_iterator.next();
-            std.debug.print("2: {?s}\n", .{route});
-            if (route) |route_safe| {
-                if (std.mem.eql(u8, route_safe, "echo")) {
-                    const echo_value = target_iterator.next() orelse "";
-                    try connection.stream.writeAll(try std.fmt.allocPrint(alloc, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {d}\r\n\r\n{s}", .{ echo_value.len, echo_value }));
-                }
+            const route = target_iterator.next() orelse "";
+            if (std.mem.eql(u8, route, "echo")) {
+                const echo_value = target_iterator.next() orelse "";
+                try connection.stream.writeAll(try std.fmt.allocPrint(alloc, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {d}\r\n\r\n{s}", .{ echo_value.len, echo_value }));
             } else {
                 try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
             }
