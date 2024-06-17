@@ -4,11 +4,6 @@ const net = std.net;
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = gpa.allocator();
-    defer _ = gpa.deinit();
-
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
     try stdout.print("Logs from your program will appear here!\n", .{});
 
     const address = try net.Address.resolveIp("127.0.0.1", 4221);
@@ -22,7 +17,6 @@ pub fn main() !void {
     defer connection.stream.close();
 
     var request_buffer: [1024]u8 = undefined;
-
     _ = try connection.stream.read(&request_buffer);
 
     printAllChars(&request_buffer);
@@ -30,48 +24,46 @@ pub fn main() !void {
 
     var request_line_iterator = std.mem.split(u8, entire_request_iterator.next() orelse "", " ");
     _ = request_line_iterator.next(); // Request type
-
-    const target = request_line_iterator.next() orelse "";
-    var target_iterator = std.mem.split(u8, target, "/");
-
-    _ = target_iterator.next(); // ""
-    const route = target_iterator.next() orelse "";
-
+    const route = request_line_iterator.next() orelse "";
     _ = request_line_iterator.next(); // HTTP Version, \r\n hasn't been stripped out yet. Do I need to check for \r\n before moving on to the headers?
 
-    var headers: [32]Header = undefined; // put this on the heap to not have a max size.
-    var header_i: u16 = 0;
-    while (entire_request_iterator.next()) |header| : (header_i += 1) { // check for double \r\n and then break.
-        // std.debug.print("{!}\n", .{splitHeader(header)});
-        if (header.len == 0) break;
+    var headers: [32]Header = undefined; // put this on the heap to not have a max size????
+    try extractHeaders(&headers, &entire_request_iterator);
 
-        headers[header_i] = try splitHeader(header); // TODO: Catch this error
-    }
+    try get(route, &headers, &connection);
+
+    try stdout.print("client connected!", .{});
+}
+
+pub fn get(route: []const u8, headers: []const Header, connection: *const std.net.Server.Connection) !void {
     std.debug.print("ROUTE:: {s}", .{route});
 
-    if (std.mem.eql(u8, route, "echo")) {
-        const echo_value = target_iterator.next() orelse "";
-        try connection.stream.writeAll(try std.fmt.allocPrint(alloc, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {d}\r\n\r\n{s}", .{ echo_value.len, echo_value }));
-    } else if (std.mem.eql(u8, route, "user-agent")) {
+    if (std.mem.startsWith(u8, route, "/echo/")) {
+        try connection.stream.writer().print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {d}\r\n\r\n{s}", .{ route[6..].len, route[6..] });
+    } else if (std.mem.startsWith(u8, route, "/user-agent")) {
         for (headers) |header| {
             if (std.mem.eql(u8, header.name, "User-Agent")) {
-                try connection.stream.writeAll(try std.fmt.allocPrint(alloc, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {d}\r\n\r\n{s}", .{ header.value.len, header.value }));
+                try connection.stream.writer().print("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {d}\r\n\r\n{s}", .{ header.value.len, header.value });
                 break;
             }
         } else {
             try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n"); //TODO: Change to an error return
         }
-    } else if (std.mem.eql(u8, route, "")) {
+    } else if (std.mem.startsWith(u8, route, "/")) {
         try connection.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
     } else {
         try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
     }
+}
 
-    // var i: u8 = 0; // Is it possible to send the request that overflows this and crashes.
-    // while (request_iterator.next()) |split| : (i += 1) {
-    // }
+pub fn extractHeaders(headers: []Header, header_iterator: *std.mem.SplitIterator(u8, std.mem.DelimiterType.sequence)) !void {
+    var header_i: u16 = 0;
+    while (header_iterator.next()) |header| : (header_i += 1) { // check for double \r\n and then break.
+        // std.debug.print("{!}\n", .{splitHeader(header)});
+        if (header.len == 0) break;
 
-    try stdout.print("client connected!", .{});
+        headers[header_i] = try splitHeader(header); // TODO: Catch this error
+    }
 }
 
 const Header = struct {
