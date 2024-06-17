@@ -12,6 +12,7 @@ pub fn main() !void {
         .reuse_address = true,
     });
     defer listener.deinit();
+    try stdout.print("client connected!", .{});
 
     const connection = try listener.accept();
     defer connection.stream.close();
@@ -31,8 +32,6 @@ pub fn main() !void {
     try extractHeaders(&headers, &entire_request_iterator);
 
     try get(route, &headers, &connection);
-
-    try stdout.print("client connected!", .{});
 }
 
 pub fn get(route: []const u8, headers: []const Header, connection: *const std.net.Server.Connection) !void {

@@ -2,10 +2,10 @@
 #
 # These can be VERY verbose, so we suggest turning them off
 # unless you really need them.
-debug: false
+debug: true
 
 # Use this to change the Zig version used to run your code
 # on Codecrafters.
 #
 # Available versions: zig-0.12
-language_pack: zig-0.12
+language_pack: zig-0.13
