@@ -1,5 +1,6 @@
 const std = @import("std");
 const net = std.net;
+const thread = std.Thread;
 
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
@@ -12,9 +13,17 @@ pub fn main() !void {
         .reuse_address = true,
     });
     defer listener.deinit();
-    try stdout.print("client connected!", .{});
 
-    const connection = try listener.accept();
+    while (true) {
+        const connection = try listener.accept();
+        try stdout.print("client connected!", .{});
+
+        const handle = try thread.spawn(.{}, processConnection, .{connection});
+        handle.detach();
+    }
+}
+
+pub fn processConnection(connection: net.Server.Connection) !void {
     defer connection.stream.close();
 
     var request_buffer: [1024]u8 = undefined;
@@ -34,7 +43,7 @@ pub fn main() !void {
     try get(route, &headers, connection);
 }
 
-pub fn get(route: []const u8, headers: []const Header, connection: std.net.Server.Connection) !void {
+pub fn get(route: []const u8, headers: []const Header, connection: net.Server.Connection) !void {
     std.debug.print("ROUTE:: {s}", .{route});
 
     if (std.mem.startsWith(u8, route, "/echo/")) {
