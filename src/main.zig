@@ -19,7 +19,11 @@ pub fn main() !void {
     //     return err;
     // };
     // std.debug.print("file: {s}\n", .{args.directory});
-    const args: Args = Args{ .directory = "./zig-out/files" };
+    const args = parseArgs() catch |err| {
+        if (err == ServerError.ArgsError) return;
+        return err;
+    };
+    std.debug.print("file: {s}\n", .{args.directory});
 
     var thread_pool: thread.Pool = undefined;
     try thread_pool.init(.{ .allocator = alloc });
@@ -43,6 +47,33 @@ pub fn main() !void {
 }
 
 const Args = struct { directory: []const u8 };
+
+pub fn parseArgs() !Args {
+    const help_message = comptime 
+    \\-h, --help                            Display this help and exit.
+    \\-d, --directory <str> *Required       Choose the directory to make available to the /files endpoint.\n
+    ;
+    const stderr = std.io.getStdErr();
+
+    var args = std.process.args();
+    _ = args.skip();
+
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "-h")) {
+            try std.io.getStdIn().writeAll(help_message);
+        } else if (std.mem.eql(u8, arg, "--directory") or std.mem.eql(u8, arg, "-d")) {
+            if (args.next()) |directory| {
+                return Args{ .directory = directory };
+            } else {
+                try stderr.writeAll("Please provide an argument to the --directory (-d) argument.\n");
+                return ServerError.ArgsError;
+            }
+        }
+    }
+
+    try stderr.writeAll(help_message);
+    return ServerError.ArgsError;
+}
 
 // pub fn parseArgs(alloc: std.mem.Allocator) !Args {
 //
