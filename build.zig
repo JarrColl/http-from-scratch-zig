@@ -30,4 +30,7 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
+
+    const clap = b.dependency("clap", .{});
+    exe.root_module.addImport("clap", clap.module("clap"));
 }

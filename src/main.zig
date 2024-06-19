@@ -1,15 +1,24 @@
 //TODO: Support the oha test while using keep-alive
 const std = @import("std");
+const clap = @import("clap");
 const net = std.net;
 const thread = std.Thread;
 
+const ServerError = error{ArgsError};
+
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("Logs from your program will appear here!\n", .{});
+    // try stdout.print("Logs from your program will appear here!\n", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = gpa.allocator();
     defer _ = gpa.deinit();
+
+    const args = parseArgs(alloc) catch |err| {
+        if (err == ServerError.ArgsError) return;
+        return err;
+    };
+    std.debug.print("file: {s}\n", .{args.directory});
 
     var thread_pool: thread.Pool = undefined;
     try thread_pool.init(.{ .allocator = alloc });
@@ -25,10 +34,47 @@ pub fn main() !void {
         const connection = try listener.accept();
         try stdout.print("client connected!\n", .{});
 
-        try thread_pool.spawn(processConnection, .{connection});
+        try thread_pool.spawn(processConnection, .{ args, connection, alloc });
         std.debug.print("Queue Size: {}\n", .{thread_pool.run_queue.len()});
         // const handle = try thread.spawn(.{}, processConnection, .{connection});
         // handle.detach();
+    }
+}
+
+const Args = struct { directory: []const u8 };
+
+pub fn parseArgs(alloc: std.mem.Allocator) !Args {
+    //
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help             Display this help and exit.
+        \\-d, --directory <str>       An option parameter which can be specified multiple times.
+    );
+
+    var diag = clap.Diagnostic{};
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+        .diagnostic = &diag,
+        .allocator = alloc,
+    }) catch |err| {
+        // Report useful error and exit
+        diag.report(std.io.getStdErr().writer(), err) catch {};
+        return err;
+    };
+
+    defer res.deinit();
+
+    if (res.args.help != 0) {
+        try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+        return ServerError.ArgsError;
+    }
+    if (res.args.directory) |f| {
+        std.fs.cwd().access(f, .{}) catch {
+            try std.io.getStdErr().writeAll("The directory could not be accessed. Please check if it exists.");
+            return ServerError.ArgsError;
+        };
+        return .{ .directory = f };
+    } else {
+        try std.io.getStdErr().writeAll("-d, --directory argument is required.");
+        return ServerError.ArgsError;
     }
 }
 
@@ -36,11 +82,14 @@ pub fn handleError(connection: net.Server.Connection) void {
     connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n\r\n") catch return;
 }
 
-pub fn processConnection(connection: net.Server.Connection) void {
+pub fn processConnection(args: Args, connection: net.Server.Connection, alloc: std.mem.Allocator) void {
     defer connection.stream.close();
 
     var request_buffer: [1024]u8 = undefined;
-    _ = connection.stream.read(&request_buffer) catch handleError(connection);
+    _ = connection.stream.read(&request_buffer) catch {
+        handleError(connection);
+        return;
+    };
 
     // printAllChars(&request_buffer);
     var entire_request_iterator = std.mem.split(u8, &request_buffer, "\r\n");
@@ -51,12 +100,18 @@ pub fn processConnection(connection: net.Server.Connection) void {
     _ = request_line_iterator.next(); // HTTP Version, \r\n hasn't been stripped out yet. Do I need to check for \r\n before moving on to the headers?
 
     var headers: [32]Header = undefined; // put this on the heap to not have a max size????
-    extractHeaders(&headers, &entire_request_iterator) catch handleError(connection);
+    extractHeaders(&headers, &entire_request_iterator) catch {
+        handleError(connection);
+        return;
+    };
 
-    get(route, &headers, connection) catch handleError(connection);
+    get(route, &headers, args, connection, alloc) catch {
+        handleError(connection);
+        return;
+    };
 }
 
-pub fn get(route: []const u8, headers: []const Header, connection: net.Server.Connection) !void {
+pub fn get(route: []const u8, headers: []const Header, args: Args, connection: net.Server.Connection, alloc: std.mem.Allocator) !void {
     // std.debug.print("\nROUTE:: {s}\n", .{route});
     var buf: [128]u8 = undefined;
 
@@ -71,6 +126,27 @@ pub fn get(route: []const u8, headers: []const Header, connection: net.Server.Co
             }
         }
         try connection.stream.writeAll("HTTP/1.1 400 Bad Request\r\n\r\n");
+    } else if (std.mem.startsWith(u8, route, "/files/")) {
+        //
+        var dir = std.fs.cwd().openDir(args.directory, .{}) catch |err| {
+            return err;
+        };
+        defer dir.close();
+
+        //TODO: Ensure the file is only in the allowed dir, no ../'ing
+        const file = dir.readFileAlloc(alloc, route[7..], 2000) catch |err| {
+            if (err == error.FileNotFound) {
+                try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
+            } else {
+                try connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+            }
+            return err;
+        };
+        std.debug.print("{s}", .{file});
+
+        const content_type = if (std.mem.endsWith(u8, route, ".html")) "html" else "plain";
+
+        try connection.stream.writer().print("HTTP/1.1 200 OK\r\nContent-Type: text/{s}\r\nContent-Length: {d}\r\n\r\n{s}", .{ content_type, file.len, file });
     } else if (std.mem.eql(u8, route, "/")) {
         try connection.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
     } else {
