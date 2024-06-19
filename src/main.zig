@@ -1,6 +1,6 @@
 //TODO: Support the oha test while using keep-alive
 const std = @import("std");
-const clap = @import("clap");
+// const clap = @import("clap");
 const net = std.net;
 const thread = std.Thread;
 
@@ -14,11 +14,12 @@ pub fn main() !void {
     const alloc = gpa.allocator();
     defer _ = gpa.deinit();
 
-    const args = parseArgs(alloc) catch |err| {
-        if (err == ServerError.ArgsError) return;
-        return err;
-    };
-    std.debug.print("file: {s}\n", .{args.directory});
+    // const args = parseArgs(alloc) catch |err| {
+    //     if (err == ServerError.ArgsError) return;
+    //     return err;
+    // };
+    // std.debug.print("file: {s}\n", .{args.directory});
+    const args: Args = Args{ .directory = "./zig-out/files" };
 
     var thread_pool: thread.Pool = undefined;
     try thread_pool.init(.{ .allocator = alloc });
@@ -43,40 +44,40 @@ pub fn main() !void {
 
 const Args = struct { directory: []const u8 };
 
-pub fn parseArgs(alloc: std.mem.Allocator) !Args {
-    //
-    const params = comptime clap.parseParamsComptime(
-        \\-h, --help             Display this help and exit.
-        \\-d, --directory <str>       An option parameter which can be specified multiple times.
-    );
-
-    var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
-        .diagnostic = &diag,
-        .allocator = alloc,
-    }) catch |err| {
-        // Report useful error and exit
-        diag.report(std.io.getStdErr().writer(), err) catch {};
-        return err;
-    };
-
-    defer res.deinit();
-
-    if (res.args.help != 0) {
-        try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-        return ServerError.ArgsError;
-    }
-    if (res.args.directory) |f| {
-        std.fs.cwd().access(f, .{}) catch {
-            try std.io.getStdErr().writeAll("The directory could not be accessed. Please check if it exists.");
-            return ServerError.ArgsError;
-        };
-        return .{ .directory = f };
-    } else {
-        try std.io.getStdErr().writeAll("-d, --directory argument is required.");
-        return ServerError.ArgsError;
-    }
-}
+// pub fn parseArgs(alloc: std.mem.Allocator) !Args {
+//
+//     const params = comptime clap.parseParamsComptime(
+//         \\-h, --help             Display this help and exit.
+//         \\-d, --directory <str>       An option parameter which can be specified multiple times.
+//     );
+//
+//     var diag = clap.Diagnostic{};
+//     var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+//         .diagnostic = &diag,
+//         .allocator = alloc,
+//     }) catch |err| {
+//         // Report useful error and exit
+//         diag.report(std.io.getStdErr().writer(), err) catch {};
+//         return err;
+//     };
+//
+//     defer res.deinit();
+//
+//     if (res.args.help != 0) {
+//         try clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+//         return ServerError.ArgsError;
+//     }
+//     if (res.args.directory) |f| {
+//         std.fs.cwd().access(f, .{}) catch {
+//             try std.io.getStdErr().writeAll("The directory could not be accessed. Please check if it exists.");
+//             return ServerError.ArgsError;
+//         };
+//         return .{ .directory = f };
+//     } else {
+//         try std.io.getStdErr().writeAll("-d, --directory argument is required.");
+//         return ServerError.ArgsError;
+//     }
+// }
 
 pub fn handleError(connection: net.Server.Connection) void {
     connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n\r\n") catch return;
