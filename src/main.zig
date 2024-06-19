@@ -176,9 +176,9 @@ pub fn get(route: []const u8, headers: []const Header, args: Args, connection: n
         };
         std.debug.print("{s}", .{file});
 
-        const content_type = "application/octet-stream"; //if (std.mem.endsWith(u8, route, ".html")) "html" else "plain";
+        const content_type = "application/octet-stream"; //if (std.mem.endsWith(u8, route, ".html")) "text/html" else "text/plain";
 
-        try connection.stream.writer().print("HTTP/1.1 200 OK\r\nContent-Type: text/{s}\r\nContent-Length: {d}\r\n\r\n{s}", .{ content_type, file.len, file });
+        try connection.stream.writer().print("HTTP/1.1 200 OK\r\nContent-Type: {s}\r\nContent-Length: {d}\r\n\r\n{s}", .{ content_type, file.len, file });
     } else if (std.mem.eql(u8, route, "/")) {
         try connection.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
     } else {
