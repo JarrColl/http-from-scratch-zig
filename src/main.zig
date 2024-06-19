@@ -23,7 +23,7 @@ pub fn main() !void {
         if (err == ServerError.ArgsError) return;
         return err;
     };
-    std.debug.print("file: {s}\n", .{args.directory});
+    // std.debug.print("file: {s}\n", .{args.directory});
 
     var thread_pool: thread.Pool = undefined;
     try thread_pool.init(.{ .allocator = alloc });
@@ -46,7 +46,7 @@ pub fn main() !void {
     }
 }
 
-const Args = struct { directory: []const u8 };
+const Args = struct { directory: ?[]const u8 };
 
 pub fn parseArgs() !Args {
     const help_message = comptime 
@@ -71,8 +71,9 @@ pub fn parseArgs() !Args {
         }
     }
 
-    try stderr.writeAll(help_message);
-    return ServerError.ArgsError;
+    // try stderr.writeAll(help_message);
+    // return ServerError.ArgsError;
+    return Args{ .directory = null };
 }
 
 // pub fn parseArgs(alloc: std.mem.Allocator) !Args {
@@ -159,26 +160,29 @@ pub fn get(route: []const u8, headers: []const Header, args: Args, connection: n
         }
         try connection.stream.writeAll("HTTP/1.1 400 Bad Request\r\n\r\n");
     } else if (std.mem.startsWith(u8, route, "/files/")) {
-        //
-        var dir = std.fs.cwd().openDir(args.directory, .{}) catch |err| {
-            return err;
-        };
-        defer dir.close();
+        if (args.directory) |directory| {
+            var dir = std.fs.cwd().openDir(directory, .{}) catch |err| {
+                return err;
+            };
+            defer dir.close();
 
-        //TODO: Ensure the file is only in the allowed dir, no ../'ing
-        const file = dir.readFileAlloc(alloc, route[7..], 2000) catch |err| {
-            if (err == error.FileNotFound) {
-                try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
-            } else {
-                try connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-            }
-            return err;
-        };
-        std.debug.print("{s}", .{file});
+            //TODO: Ensure the file is only in the allowed dir, no ../'ing
+            const file = dir.readFileAlloc(alloc, route[7..], 2000) catch |err| {
+                if (err == error.FileNotFound) {
+                    try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
+                } else {
+                    try connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+                }
+                return err;
+            };
+            std.debug.print("{s}", .{file});
 
-        const content_type = "application/octet-stream"; //if (std.mem.endsWith(u8, route, ".html")) "text/html" else "text/plain";
+            const content_type = "application/octet-stream"; //if (std.mem.endsWith(u8, route, ".html")) "text/html" else "text/plain";
 
-        try connection.stream.writer().print("HTTP/1.1 200 OK\r\nContent-Type: {s}\r\nContent-Length: {d}\r\n\r\n{s}", .{ content_type, file.len, file });
+            try connection.stream.writer().print("HTTP/1.1 200 OK\r\nContent-Type: {s}\r\nContent-Length: {d}\r\n\r\n{s}", .{ content_type, file.len, file });
+        } else { // A file is requested but the directory arg was not set.
+            try connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        }
     } else if (std.mem.eql(u8, route, "/")) {
         try connection.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
     } else {
