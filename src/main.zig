@@ -125,24 +125,39 @@ pub fn processConnection(args: Args, connection: net.Server.Connection, alloc: s
         return;
     };
 
-    // printAllChars(&request_buffer);
-    var entire_request_iterator = std.mem.split(u8, &request_buffer, "\r\n");
+    printAllChars(&request_buffer);
+    var entire_request_iterator = std.mem.splitSequence(u8, &request_buffer, "\r\n");
 
-    var request_line_iterator = std.mem.split(u8, entire_request_iterator.next() orelse "", " ");
-    _ = request_line_iterator.next(); // Request type
-    const route = request_line_iterator.next() orelse "";
-    _ = request_line_iterator.next(); // HTTP Version, \r\n hasn't been stripped out yet. Do I need to check for \r\n before moving on to the headers?
+    var info_line_iterator = std.mem.splitScalar(u8, entire_request_iterator.next() orelse "", ' ');
+    const method = info_line_iterator.next() orelse ""; // Request method
+    const route = info_line_iterator.next() orelse "";
+    _ = info_line_iterator.next(); // HTTP Version, \r\n hasn't been stripped out yet. Do I need to check for \r\n before moving on to the headers?
 
-    var headers: [32]Header = undefined; // put this on the heap to not have a max size????
-    extractHeaders(&headers, &entire_request_iterator) catch {
+    var headers_buf: [32]Header = undefined; // put this on the heap to not have a max size????
+    const headers = extractHeaders(&headers_buf, &entire_request_iterator) catch {
         handleError(connection);
         return;
     };
 
-    get(route, &headers, args, connection, alloc) catch {
-        handleError(connection);
+    const body = entire_request_iterator.next() orelse "";
+    std.debug.print("\nbody len: {}\n", .{body.len});
+
+    if (std.mem.eql(u8, method, "GET")) {
+        get(route, headers, args, connection, alloc) catch |err| {
+            std.debug.print("Get error: {}", .{err});
+            handleError(connection);
+            return;
+        };
+    } else if (std.mem.eql(u8, method, "POST")) {
+        post(route, headers, body, args, connection, alloc) catch |err| {
+            std.debug.print("Post error: {}", .{err});
+            handleError(connection);
+            return;
+        };
+    } else {
+        connection.stream.writeAll("HTTP/1.1 400 Bad Request\r\n\r\n") catch handleError(connection);
         return;
-    };
+    }
 }
 
 pub fn get(route: []const u8, headers: []const Header, args: Args, connection: net.Server.Connection, alloc: std.mem.Allocator) !void {
@@ -172,7 +187,7 @@ pub fn get(route: []const u8, headers: []const Header, args: Args, connection: n
                 if (err == error.FileNotFound) {
                     try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
                 } else {
-                    try connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+                    handleError(connection);
                 }
                 return err;
             };
@@ -182,7 +197,7 @@ pub fn get(route: []const u8, headers: []const Header, args: Args, connection: n
 
             try connection.stream.writer().print("HTTP/1.1 200 OK\r\nContent-Type: {s}\r\nContent-Length: {d}\r\n\r\n{s}", .{ content_type, file.len, file });
         } else { // A file is requested but the directory arg was not set.
-            try connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+            handleError(connection);
         }
     } else if (std.mem.eql(u8, route, "/")) {
         try connection.stream.writeAll("HTTP/1.1 200 OK\r\n\r\n");
@@ -191,14 +206,57 @@ pub fn get(route: []const u8, headers: []const Header, args: Args, connection: n
     }
 }
 
-pub fn extractHeaders(headers: []Header, header_iterator: *std.mem.SplitIterator(u8, std.mem.DelimiterType.sequence)) !void {
+pub fn post(route: []const u8, headers: []const Header, body: []const u8, args: Args, connection: net.Server.Connection, alloc: std.mem.Allocator) !void {
+    var buf: [128]u8 = undefined;
+    const stderr = std.io.getStdErr();
+    _ = alloc;
+    std.debug.print("POSTING", .{});
+    if (std.mem.startsWith(u8, route, "/files/")) {
+        if (args.directory) |directory| {
+            var dir = std.fs.cwd().openDir(directory, .{}) catch |err| {
+                return err;
+            };
+            defer dir.close();
+
+            for (headers) |header| { // how do I stop it looping over the undefined areas
+                std.debug.print("\nhello, {s}", .{header.name});
+                if (std.mem.eql(u8, std.ascii.lowerString(&buf, header.name), "content-length")) {
+                    const content_length = std.fmt.parseUnsigned(u32, header.value, 10) catch |err| {
+                        try connection.stream.writeAll("HTTP/1.1 400 Bad Request\r\n\r\n");
+                        return err;
+                    }; // error means that it was invalid int.
+
+                    // Check for issues in the request;
+                    if (body.len <= 0) {
+                        stderr.writeAll("/files/ post request with a 0 length body occured.") catch {};
+                        break;
+                    }
+
+                    const file: std.fs.File = try dir.createFile(route[7..], .{});
+                    defer file.close();
+                    try file.writeAll(body[0..content_length]);
+
+                    try connection.stream.writeAll("HTTP/1.1 201 Created\r\n\r\n");
+                    return;
+                }
+            }
+
+            try connection.stream.writeAll("HTTP/1.1 400 Bad Request\r\n\r\n");
+        } else { // A file is requested but the directory arg was not set.
+            handleError(connection);
+        }
+    }
+}
+
+pub fn extractHeaders(headers: []Header, header_iterator: *std.mem.SplitIterator(u8, std.mem.DelimiterType.sequence)) ![]const Header {
     var header_i: u16 = 0;
     while (header_iterator.next()) |header| : (header_i += 1) { // check for double \r\n and then break.
-        // std.debug.print("{!}\n", .{splitHeader(header)});
+        std.debug.print("{s}\n", .{header});
         if (header.len == 0) break;
 
         headers[header_i] = try splitHeader(header); // TODO: Catch this error
     }
+    return headers[0..header_i];
 }
 
 const Header = struct {
@@ -208,7 +266,7 @@ const Header = struct {
 
 const splitHeaderError = error{NullFound};
 fn splitHeader(string: []const u8) splitHeaderError!Header {
-    var header_iterator = std.mem.split(u8, string, ": ");
+    var header_iterator = std.mem.splitSequence(u8, string, ": ");
     return Header{
         .name = header_iterator.next() orelse return splitHeaderError.NullFound,
         .value = header_iterator.next() orelse return splitHeaderError.NullFound,
