@@ -64,7 +64,6 @@ const Response = struct {
     encoding: ?Encoding = null,
 
     pub fn sendResponse(self: Response, connection: net.Server.Connection) !void {
-        std.debug.print("encoding: {?}\n", .{self.encoding});
         assert(self.code != null);
 
         try connection.stream.writeAll(self.code.?.str());
@@ -74,6 +73,7 @@ const Response = struct {
             assert(self.content != null);
 
             try connection.stream.writer().print("Content-Type: {s}\r\n", .{content_type});
+            try connection.stream.writer().print("Content-Length: {}\r\n", .{self.content.?.len});
             if (self.encoding) |encoding| {
                 try connection.stream.writer().print("Content-Encoding: {s}\r\n", .{encoding.str()});
 
@@ -241,7 +241,7 @@ pub fn get(route: []const u8, headers: []const Header, args: Args, response: *Re
                 }
                 return err;
             };
-            std.debug.print("{s}", .{file});
+            // std.debug.print("{s}", .{file});
 
             // const content_type = "application/octet-stream"; //if (std.mem.endsWith(u8, route, ".html")) "text/html" else "text/plain";
 
@@ -273,7 +273,6 @@ pub fn post(route: []const u8, headers: []const Header, body: []const u8, args: 
             defer dir.close();
 
             for (headers) |header| { // how do I stop it looping over the undefined areas
-                std.debug.print("\nhello, {s}", .{header.name});
                 if (std.ascii.eqlIgnoreCase(header.name, "content-length")) {
                     const content_length = std.fmt.parseUnsigned(u32, header.value, 10) catch |err| {
                         // try connection.stream.writeAll("HTTP/1.1 400 Bad Request\r\n\r\n");
@@ -308,7 +307,7 @@ pub fn post(route: []const u8, headers: []const Header, body: []const u8, args: 
 pub fn extractHeaders(headers: []Header, header_iterator: *std.mem.SplitIterator(u8, std.mem.DelimiterType.sequence)) ![]const Header {
     var header_i: u16 = 0;
     while (header_iterator.next()) |header| : (header_i += 1) { // check for double \r\n and then break.
-        std.debug.print("{s}\n", .{header});
+        // std.debug.print("{s}\n", .{header});
         if (header.len == 0) break;
 
         headers[header_i] = try splitHeader(header); // TODO: Catch this error
