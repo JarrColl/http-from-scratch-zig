@@ -178,7 +178,15 @@ pub fn processConnection(args: Args, connection: net.Server.Connection, alloc: s
     // Set the encoding in the response struct if it was sent.
     for (headers) |header| {
         if (std.ascii.eqlIgnoreCase(header.name, "Accept-Encoding")) {
-            response.encoding = Encoding.fromString(header.value);
+            var encoding_iterator = std.mem.tokenizeSequence(u8, header.value, ", ");
+
+            // Currently just uses the first supported encoding.
+            while (encoding_iterator.next()) |encoding| {
+                response.encoding = Encoding.fromString(encoding);
+                if (response.encoding != null) {
+                    break;
+                }
+            }
         }
     }
 
