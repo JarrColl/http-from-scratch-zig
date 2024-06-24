@@ -7,6 +7,17 @@ const thread = std.Thread;
 
 const ServerError = error{ArgsError};
 
+const ResponseCode = enum([]u8)  {
+    @"200" = "http 200  ok",
+};
+
+const Args = struct { directory: ?[]const u8 };
+
+const Header = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
     // try stdout.print("Logs from your program will appear here!\n", .{});
@@ -46,8 +57,6 @@ pub fn main() !void {
         // handle.detach();
     }
 }
-
-const Args = struct { directory: ?[]const u8 };
 
 pub fn parseArgs() !Args {
     const help_message = comptime 
@@ -248,6 +257,10 @@ pub fn post(route: []const u8, headers: []const Header, body: []const u8, args: 
     }
 }
 
+pub fn sendResponse(code: ResponseCode, content: ?[]u8, compression: u8, connection: net.Server.Connection) !void {
+
+}
+
 pub fn extractHeaders(headers: []Header, header_iterator: *std.mem.SplitIterator(u8, std.mem.DelimiterType.sequence)) ![]const Header {
     var header_i: u16 = 0;
     while (header_iterator.next()) |header| : (header_i += 1) { // check for double \r\n and then break.
@@ -258,11 +271,6 @@ pub fn extractHeaders(headers: []Header, header_iterator: *std.mem.SplitIterator
     }
     return headers[0..header_i];
 }
-
-const Header = struct {
-    name: []const u8,
-    value: []const u8,
-};
 
 const splitHeaderError = error{NullFound};
 fn splitHeader(string: []const u8) splitHeaderError!Header {
