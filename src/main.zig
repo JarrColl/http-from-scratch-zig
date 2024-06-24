@@ -236,6 +236,7 @@ pub fn get(route: []const u8, headers: []const Header, args: Args, response: *Re
                 if (err == error.FileNotFound) {
                     // try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
                     response.code = ResponseCode.@"404";
+                    try response.sendResponse(connection);
                 } else {
                     handleError(connection);
                 }
