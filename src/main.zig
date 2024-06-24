@@ -17,6 +17,7 @@ const Header = struct {
     name: []const u8,
     value: []const u8,
 };
+const SUPPORTED_ENCODINGS = [_][]const u8{"gzip"};
 
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
@@ -149,7 +150,6 @@ pub fn processConnection(args: Args, connection: net.Server.Connection, alloc: s
     };
 
     const body = entire_request_iterator.next() orelse "";
-    std.debug.print("\nbody len: {}\n", .{body.len});
 
     if (std.mem.eql(u8, method, "GET")) {
         get(route, headers, args, connection, alloc) catch |err| {
