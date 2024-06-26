@@ -5,6 +5,7 @@ const std = @import("std");
 const net = std.net;
 const thread = std.Thread;
 const assert = std.debug.assert;
+const gzip = std.compress.gzip;
 
 const ServerError = error{ArgsError};
 
@@ -36,7 +37,7 @@ const Header = struct {
 };
 
 const Encoding = enum {
-    GZip,
+    gzip,
 
     pub const EncodingTypeTable = [@typeInfo(Encoding).Enum.fields.len][:0]const u8{
         "gzip",
@@ -78,7 +79,23 @@ const Response = struct {
                 try connection.stream.writer().print("Content-Encoding: {s}\r\n", .{encoding.str()});
 
                 try connection.stream.writeAll("\r\n");
-                try connection.stream.writeAll(self.content.?);
+
+                switch (encoding) {
+                    .gzip => {
+                        var fba = std.io.fixedBufferStream(self.content.?);
+                        // var stdout = std.io.getStdOut();
+                        std.debug.print("DEBUGGING: {d}\n", .{self.content.?});
+
+                        var buffer_test: [1024]u8 = undefined;
+                        var fba_test = std.io.fixedBufferStream(&buffer_test);
+
+                        try gzip.compress(fba.reader(), fba_test.writer(), .{});
+                        try gzip.compress(fba.reader(), connection.stream.writer(), .{});
+
+                        std.debug.print("DEBUGGING 2: {d}", .{buffer_test});
+                    },
+                }
+                // try connection.stream.writeAll(self.content.?);
             } else {
                 try connection.stream.writeAll("\r\n");
                 try connection.stream.writeAll(self.content.?);
