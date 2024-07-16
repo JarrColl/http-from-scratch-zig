@@ -64,7 +64,7 @@ const Response = struct {
     // headers: ?[]Header = null,
     encoding: ?Encoding = null,
 
-    pub fn sendResponse(self: Response, connection: net.Server.Connection) !void {
+    pub fn sendResponse(self: Response, alloc: std.mem.Allocator, connection: net.Server.Connection) !void {
         assert(self.code != null);
 
         try connection.stream.writeAll(self.code.?.str());
@@ -74,30 +74,41 @@ const Response = struct {
             assert(self.content != null);
 
             try connection.stream.writer().print("Content-Type: {s}\r\n", .{content_type});
-            try connection.stream.writer().print("Content-Length: {}\r\n", .{self.content.?.len});
             if (self.encoding) |encoding| {
                 try connection.stream.writer().print("Content-Encoding: {s}\r\n", .{encoding.str()});
-
-                try connection.stream.writeAll("\r\n");
 
                 switch (encoding) {
                     .gzip => {
                         var fba = std.io.fixedBufferStream(self.content.?);
                         // var stdout = std.io.getStdOut();
-                        std.debug.print("DEBUGGING: {d}\n", .{self.content.?});
+                        // std.debug.print("DEBUGGING: {d}\n", .{self.content.?});
 
-                        var buffer_test: [1024]u8 = undefined;
-                        var fba_test = std.io.fixedBufferStream(&buffer_test);
+                        var compressed_array_list = std.ArrayList(u8).init(alloc);
+                        // var compressed_buffer: [1024]u8 = undefined;
+                        // var fba_test = std.io.fixedBufferStream(&compressed_buffer);
 
-                        try gzip.compress(fba.reader(), fba_test.writer(), .{});
-                        try gzip.compress(fba.reader(), connection.stream.writer(), .{});
+                        try gzip.compress(fba.reader(), compressed_array_list.writer(), .{});
+                        // try connection.stream.writer().print("Content-Length: {}\r\n", .{fba_test.reader().readAll()});
+                        try connection.stream.writer().print("Content-Length: {}\r\n\r\n", .{compressed_array_list.items.len});
+                        try connection.stream.writeAll(compressed_array_list.allocatedSlice());
 
-                        std.debug.print("DEBUGGING 2: {d}", .{buffer_test});
+                        // std.debug.print("Now sending compressed data to the client\n", .{});
+                        // connection.stream.writeAll(&compressed_buffer) catch |err| {
+                        //     std.debug.print("{}", .{err});
+                        // };
+
+                        // try gzip.compress(fba_test.reader(), stdout.writer(), .{});
+
+                        // gzip.compress(fba_test.reader(), connection.stream.writer(), .{}) catch |err| {
+                        //     std.debug.print("{}", .{err});
+                        // };
+                        // std.debug.print("HKELLOOO\n", .{});
+
                     },
                 }
                 // try connection.stream.writeAll(self.content.?);
             } else {
-                try connection.stream.writeAll("\r\n");
+                try connection.stream.writer().print("Content-Length: {}\r\n\r\n", .{self.content.?.len});
                 try connection.stream.writeAll(self.content.?);
             }
         } else {
@@ -226,7 +237,7 @@ pub fn processConnection(args: Args, connection: net.Server.Connection, alloc: s
         response.code = ResponseCode.@"400";
     }
 
-    response.sendResponse(connection) catch handleError(connection);
+    response.sendResponse(alloc, connection) catch handleError(connection);
 }
 
 pub fn get(route: []const u8, headers: []const Header, args: Args, response: *Response, connection: net.Server.Connection, alloc: std.mem.Allocator) !void {
@@ -261,7 +272,7 @@ pub fn get(route: []const u8, headers: []const Header, args: Args, response: *Re
                 if (err == error.FileNotFound) {
                     // try connection.stream.writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
                     response.code = ResponseCode.@"404";
-                    try response.sendResponse(connection);
+                    try response.sendResponse(alloc, connection);
                 } else {
                     handleError(connection);
                 }
